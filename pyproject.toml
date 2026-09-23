@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "context-cartographer"
+version = "0.1.0"
+description = "Generate a concise map of a project directory"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Draco", email = "frlexolexo@gmail.com"}]
+dependencies = []
+
+[project.scripts]
+cartographer = "context_cartographer.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
