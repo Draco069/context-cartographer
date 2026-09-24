@@ -63,6 +63,32 @@ class AnalyzerTests(unittest.TestCase):
             self.assertEqual(result.warnings, ())
             self.assertEqual(result.files[0].extension, ".png")
 
+    def test_analyze_files_skips_direct_symlink_without_opening_it(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target.py"
+            target.write_text("TODO: target content\n", encoding="utf-8")
+            link = root / "linked.py"
+            try:
+                link.symlink_to(target)
+            except (NotImplementedError, OSError) as error:
+                self.skipTest(f"symbolic links are unavailable: {error}")
+
+            original_open = Path.open
+
+            def fail_for_link(self, *args, **kwargs):
+                if self == link:
+                    raise AssertionError("symlink should not be opened")
+                return original_open(self, *args, **kwargs)
+
+            with patch.object(Path, "open", fail_for_link):
+                result = analyze_files(root, [link])
+
+            self.assertEqual(result.files, ())
+            self.assertEqual(len(result.warnings), 1)
+            self.assertIn("symlink", result.warnings[0])
+            self.assertIn("linked.py", result.warnings[0])
+
     def test_classifications_use_lowercase_suffixes_and_exact_config_names(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -102,6 +128,31 @@ class AnalyzerTests(unittest.TestCase):
             self.assertTrue(records["server.js"].is_entry_point)
             self.assertFalse(records["Main.py"].is_entry_point)
             self.assertFalse(records["index.tsx"].is_entry_point)
+
+    def test_project_manifests_are_entry_points(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = []
+            for relative in (
+                "pyproject.toml",
+                "package.json",
+                "Cargo.toml",
+                "go.mod",
+            ):
+                path = root / relative
+                path.write_text("", encoding="utf-8")
+                paths.append(path)
+
+            records = {record.path: record for record in analyze_files(root, paths).files}
+
+            for relative in (
+                "pyproject.toml",
+                "package.json",
+                "Cargo.toml",
+                "go.mod",
+            ):
+                with self.subTest(manifest=relative):
+                    self.assertTrue(records[relative].is_entry_point)
 
     def test_test_path_matching_is_conservative(self) -> None:
         test_paths = {

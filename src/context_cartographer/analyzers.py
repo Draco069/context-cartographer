@@ -59,7 +59,19 @@ CONFIG_FILENAMES = frozenset(
     }
 )
 ENTRY_POINT_FILENAMES = frozenset(
-    {"main.py", "app.py", "index.js", "index.ts", "server.js", "server.ts", "__main__.py"}
+    {
+        "main.py",
+        "app.py",
+        "index.js",
+        "index.ts",
+        "server.js",
+        "server.ts",
+        "__main__.py",
+        "pyproject.toml",
+        "package.json",
+        "Cargo.toml",
+        "go.mod",
+    }
 )
 TODO_PATTERN = re.compile(r"\b(TODO|FIXME)\b")
 TEXT_EXTENSIONS = SOURCE_EXTENSIONS | DOCUMENTATION_EXTENSIONS | frozenset(
@@ -214,13 +226,24 @@ def analyze_files(
     )
 
     warnings: list[str] = []
-    records = tuple(
-        _classify_file(
-            path,
-            relative_path,
-            include_todos=include_todos,
-            warnings=warnings,
+    records: list[FileRecord] = []
+    for relative_path, path in ordered_paths:
+        try:
+            is_symlink = path.is_symlink()
+        except OSError as error:
+            warnings.append(f"could not inspect {relative_path}: {error}")
+            continue
+
+        if is_symlink:
+            warnings.append(f"skipped symlink: {relative_path}")
+            continue
+
+        records.append(
+            _classify_file(
+                path,
+                relative_path,
+                include_todos=include_todos,
+                warnings=warnings,
+            )
         )
-        for relative_path, path in ordered_paths
-    )
-    return AnalysisResult(files=records, warnings=tuple(warnings))
+    return AnalysisResult(files=tuple(records), warnings=tuple(warnings))
