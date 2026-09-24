@@ -97,6 +97,15 @@ def _write_stdout(text: str) -> None:
         sys.stdout.write(ascii_text)
 
 
+def _write_stderr(text: str) -> None:
+    """Write stderr text with the same narrow-console fallback as stdout."""
+    try:
+        sys.stderr.write(text)
+    except UnicodeEncodeError:
+        ascii_text = text.encode("ascii", errors="backslashreplace").decode("ascii")
+        sys.stderr.write(ascii_text)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the scanner, analyzer, renderer, and output pipeline."""
     parser = build_parser()
@@ -144,14 +153,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ) from error
         else:
             _write_stdout(rendered)
+            sys.stdout.flush()
 
-        sys.stdout.flush()
         for warning in report.warnings:
-            print(f"cartographer: warning: {warning}", file=sys.stderr)
+            _write_stderr(f"cartographer: warning: {warning}\n")
         return 0
     except CartographerError as error:
-        print(f"cartographer: error: {error}", file=sys.stderr)
+        _write_stderr(f"cartographer: error: {error}\n")
         return error.exit_code
     except (OSError, ValueError) as error:
-        print(f"cartographer: error: {error}", file=sys.stderr)
+        _write_stderr(f"cartographer: error: {error}\n")
         return 2

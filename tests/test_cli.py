@@ -13,6 +13,8 @@ from context_cartographer.errors import (
     OutputError,
     UsageError,
 )
+from context_cartographer.models import AnalysisResult
+from context_cartographer.scanner import ScanResult
 
 
 class CliTests(unittest.TestCase):
@@ -42,6 +44,56 @@ class CliTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertTrue(output.isascii())
             self.assertIn(b"\\u2514", output)
+
+    def test_stderr_uses_ascii_fallback_for_cp1252_console(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scan = ScanResult(
+                root=root,
+                files=(),
+                tree=(root.name,),
+                warnings=("mocked warning: \U0001f600",),
+            )
+            analysis = AnalysisResult(files=(), warnings=())
+            raw = io.BytesIO()
+
+            with io.TextIOWrapper(raw, encoding="cp1252") as stderr:
+                with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                    with patch(
+                        "context_cartographer.cli.scan_project", return_value=scan
+                    ), patch(
+                        "context_cartographer.cli.analyze_files", return_value=analysis
+                    ):
+                        exit_code = main([str(root)])
+                stderr.flush()
+                output = raw.getvalue()
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(output.isascii())
+            self.assertIn(b"cartographer: warning:", output)
+            self.assertIn(b"\\U0001f600", output)
+            self.assertNotIn(b"Traceback", output)
+
+    def test_output_file_success_does_not_flush_stdout(self) -> None:
+        class BrokenStdout:
+            def write(self, value: str) -> int:
+                raise AssertionError("stdout should not be used for file output")
+
+            def flush(self) -> None:
+                raise AssertionError("stdout should not be flushed for file output")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "main.py").write_text("print('ok')\n", encoding="utf-8")
+            output = root / "map.md"
+            stderr = io.StringIO()
+
+            with redirect_stdout(BrokenStdout()), redirect_stderr(stderr):
+                exit_code = main([str(root), "--output", str(output)])
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(output.exists())
+            self.assertEqual(stderr.getvalue(), "")
 
     def test_report_title_uses_resolved_basename_without_absolute_path(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

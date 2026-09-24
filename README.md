@@ -37,7 +37,7 @@ cartographer examples/demo-project --format json
 python -m context_cartographer examples/demo-project --output examples/demo-project/MAP.md
 ```
 
-The last command writes a Markdown report to `examples/demo-project/MAP.md`. That generated file will be included in a later scan of `examples/demo-project` unless it is excluded with `--exclude` or removed. Without `--output`, Context Cartographer writes the report to standard output. Markdown keeps the documented Unicode tree in the report; if the console encoding cannot represent it, standard output uses an ASCII-safe backslash-escaped fallback and the command still exits successfully.
+The last command writes a Markdown report to `examples/demo-project/MAP.md`. That generated file will be included in a later scan of `examples/demo-project` unless it is excluded with `--exclude` or removed. Without `--output`, Context Cartographer writes the report to standard output. Markdown keeps the documented Unicode tree in the report; if the console encoding cannot represent it, standard output automatically uses an ASCII-safe backslash-escaped fallback and the command still exits successfully. No `PYTHONIOENCODING` setting is required.
 
 ## Command options
 
@@ -68,7 +68,7 @@ If any component of the supplied `PATH` is a symbolic link or Windows reparse po
 
 Markdown reports contain these sections in order: `Summary`, `Project tree`, `Files by extension`, `Likely entry points`, `Tests`, `Configuration`, `Documentation`, `TODO/FIXME`, and `Warnings`. The report and tree title use only the resolved directory basename, not the absolute target path. JSON reports contain the same information in a key-sorted object, including summary counts, tree lines, categorized paths, per-file metadata, TODO/FIXME records, and warnings.
 
-File records contain relative paths, extensions, classification flags, and TODO/FIXME path, line, and marker records. Reports do not contain complete source-file contents. Standard output is flushed before scan and read warnings are printed to standard error, keeping the rendered report ordered when streams are combined.
+File records contain relative paths, extensions, classification flags, and TODO/FIXME path, line, and marker records. Reports do not contain complete source-file contents. When a report is written to standard output, it is flushed before scan and read warnings are printed to standard error, keeping the rendered report ordered when streams are combined. File output does not require a usable standard-output stream.
 
 The command uses these exit codes:
 

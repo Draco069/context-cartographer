@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from context_cartographer.scanner import scan_project
+from context_cartographer.scanner import _absolute_components, scan_project
 
 
 class ScannerTests(unittest.TestCase):
@@ -26,6 +26,15 @@ class ScannerTests(unittest.TestCase):
         if result.returncode != 0:
             details = (result.stderr or result.stdout).strip()
             self.skipTest(f"mklink /J could not create a junction: {details}")
+
+    @unittest.skipUnless(os.name == "nt", "Windows drive-relative path behavior")
+    def test_absolute_components_uses_drive_relative_base(self) -> None:
+        path = Path("Y:folder")
+        expected = Path(os.path.abspath(path))
+        components = tuple(_absolute_components(path))
+
+        self.assertEqual(components[0].drive, "Y:")
+        self.assertEqual(components[-1], expected)
 
     def test_scanner_skips_default_directories_and_sorts_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

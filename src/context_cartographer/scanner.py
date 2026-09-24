@@ -114,7 +114,7 @@ def _link_kind(path: Path) -> str | None:
 
 def _absolute_components(path: Path) -> Iterator[Path]:
     """Yield lexical path components without resolving filesystem links."""
-    absolute = path if path.is_absolute() else Path.cwd() / path
+    absolute = Path(os.path.abspath(path))
     current = Path(absolute.anchor)
     yield current
 
