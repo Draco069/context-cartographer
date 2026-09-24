@@ -86,6 +86,8 @@ def _scan_directory(
             key=lambda entry: (entry.name.casefold(), entry.name),
         )
     except OSError as error:
+        if current_depth == 0:
+            raise
         warnings.append(
             f"could not read directory {_relative_name(root, directory)}: {error}"
         )
@@ -136,6 +138,8 @@ def scan_project(
     max_depth: int | None = None,
 ) -> ScanResult:
     """Scan ``root`` recursively without following symbolic links."""
+    if root.is_symlink():
+        raise NotADirectoryError(f"scan root is a symbolic link: {root}")
     if not root.exists():
         raise FileNotFoundError(f"scan root does not exist: {root}")
     if not root.is_dir():
