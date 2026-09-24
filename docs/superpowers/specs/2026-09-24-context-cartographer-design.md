@@ -100,14 +100,14 @@ The rules will be data-driven where practical so they can be expanded without re
 - `1`: invalid arguments or target path.
 - `2`: unexpected scanning, rendering, or output error.
 
-An unreadable individual file or directory will produce a warning on standard error and be skipped. A completely inaccessible target will fail with a concise error. Output errors will include the destination path. The CLI will not print a traceback for expected user errors.
+An unreadable individual file will produce a warning on standard error; its file metadata is retained while content analysis is skipped. An unreadable directory will produce a warning and be skipped. A completely inaccessible target will fail with a concise error. Output errors will include the destination path. The CLI will not print a traceback for expected user errors.
 
 ## Security and Privacy
 
 - The tool will not execute discovered files.
 - It will not make network requests.
 - It will not include full file contents in reports.
-- It will not follow symlinked directories by default, preventing accidental traversal outside the target tree.
+- It will reject scan-root paths containing symbolic links or Windows reparse points, and will not follow discovered link/reparse entries by default; resolved paths are kept under the accepted root.
 - Paths in reports will be relative to the target where possible.
 
 ## Testing Strategy

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import fnmatch
+import os
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Sequence
+from typing import Iterator, Sequence
 
 
 __all__ = [
@@ -28,6 +30,12 @@ DEFAULT_EXCLUDED_DIRECTORIES = frozenset(
         "dist",
         "build",
     }
+)
+_DEFAULT_EXCLUDED_DIRECTORIES_CASEFOLD = frozenset(
+    name.casefold() for name in DEFAULT_EXCLUDED_DIRECTORIES
+)
+_WINDOWS_REPARSE_POINT_ATTRIBUTE = getattr(
+    stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400
 )
 
 
@@ -70,9 +78,91 @@ def _relative_name(root: Path, path: Path) -> str:
     return _relative_to(root, path).as_posix()
 
 
+def _link_kind(path: Path) -> str | None:
+    """Return the link kind detected without following ``path``.
+
+    ``Path.is_symlink`` does not identify Windows junctions and other reparse
+    points on all supported Python versions.  ``os.lstat`` exposes the link
+    mode on POSIX and the reparse attributes on Windows.  The final
+    ``is_symlink`` check is a portable fallback for platforms that do not
+    expose either piece of link metadata.
+    """
+    try:
+        metadata = os.lstat(path)
+    except (AttributeError, NotImplementedError):
+        try:
+            return "symlink" if path.is_symlink() else None
+        except OSError:
+            return None
+
+    if stat.S_ISLNK(metadata.st_mode):
+        return "symlink"
+
+    attributes = getattr(metadata, "st_file_attributes", None)
+    if attributes is not None and attributes & _WINDOWS_REPARSE_POINT_ATTRIBUTE:
+        return "reparse point"
+
+    reparse_tag = getattr(metadata, "st_reparse_tag", None)
+    if reparse_tag:
+        return "reparse point"
+
+    try:
+        return "symlink" if path.is_symlink() else None
+    except OSError:
+        return None
+
+
+def _absolute_components(path: Path) -> Iterator[Path]:
+    """Yield lexical path components without resolving filesystem links."""
+    absolute = path if path.is_absolute() else Path.cwd() / path
+    current = Path(absolute.anchor)
+    yield current
+
+    for component in absolute.parts[1:]:
+        if component == ".":
+            continue
+        if component == "..":
+            current = current.parent
+            continue
+        current /= component
+        yield current
+
+
+def _find_link_component(path: Path) -> tuple[Path, str] | None:
+    """Find a symlink or reparse point in ``path``'s lexical ancestry."""
+    for component in _absolute_components(path):
+        try:
+            link_kind = _link_kind(component)
+        except FileNotFoundError:
+            # Let the normal root validation below produce the public error.
+            return None
+        if link_kind is not None:
+            return component, link_kind
+    return None
+
+
+def _is_contained(path: Path, root: Path) -> bool:
+    """Return whether resolved ``path`` is at or below resolved ``root``."""
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _display_root_name(root: Path) -> str:
+    """Return a resolved directory basename without exposing its full path."""
+    try:
+        resolved_root = root.resolve(strict=False)
+    except (OSError, RuntimeError):
+        resolved_root = root
+    return resolved_root.name or "."
+
+
 def _scan_directory(
     directory: Path,
     root: Path,
+    resolved_root: Path,
     files: list[Path],
     warnings: list[str],
     exclude_patterns: Sequence[str],
@@ -80,6 +170,20 @@ def _scan_directory(
     current_depth: int,
 ) -> None:
     """Collect files below ``directory`` using deterministic depth-first order."""
+    try:
+        resolved_directory = directory.resolve(strict=True)
+    except (OSError, RuntimeError) as error:
+        warnings.append(
+            f"could not resolve {_relative_name(root, directory)}: {error}"
+        )
+        return
+
+    if not _is_contained(resolved_directory, resolved_root):
+        warnings.append(
+            f"skipped directory outside scan root: {_relative_name(root, directory)}"
+        )
+        return
+
     try:
         entries = sorted(
             directory.iterdir(),
@@ -97,29 +201,43 @@ def _scan_directory(
         relative_name = _relative_name(root, entry)
 
         try:
-            if entry.is_symlink():
-                warnings.append(f"skipped symlink: {relative_name}")
-                continue
+            link_kind = _link_kind(entry)
         except OSError as error:
             warnings.append(f"could not inspect {relative_name}: {error}")
             continue
 
+        if link_kind is not None:
+            warnings.append(f"skipped {link_kind}: {relative_name}")
+            continue
+
         try:
-            is_directory = entry.is_dir()
-            is_file = entry.is_file()
+            resolved_entry = entry.resolve(strict=True)
+        except (OSError, RuntimeError) as error:
+            warnings.append(f"could not resolve {relative_name}: {error}")
+            continue
+
+        if not _is_contained(resolved_entry, resolved_root):
+            warnings.append(f"skipped path outside scan root: {relative_name}")
+            continue
+
+        try:
+            is_directory = resolved_entry.is_dir()
+            is_file = resolved_entry.is_file()
         except OSError as error:
             warnings.append(f"could not inspect {relative_name}: {error}")
             continue
 
         if is_directory:
-            if entry.name in DEFAULT_EXCLUDED_DIRECTORIES or _matches(
-                relative_name, entry.name, exclude_patterns
+            if (
+                entry.name.casefold() in _DEFAULT_EXCLUDED_DIRECTORIES_CASEFOLD
+                or _matches(relative_name, entry.name, exclude_patterns)
             ):
                 continue
             if max_depth is None or current_depth < max_depth:
                 _scan_directory(
                     entry,
                     root,
+                    resolved_root,
                     files,
                     warnings,
                     exclude_patterns,
@@ -137,19 +255,37 @@ def scan_project(
     exclude_patterns: Sequence[str] = (),
     max_depth: int | None = None,
 ) -> ScanResult:
-    """Scan ``root`` recursively without following symbolic links."""
-    if root.is_symlink():
-        raise NotADirectoryError(f"scan root is a symbolic link: {root}")
-    if not root.exists():
-        raise FileNotFoundError(f"scan root does not exist: {root}")
-    if not root.is_dir():
+    """Scan ``root`` without following links or leaving its resolved tree."""
+    root = Path(root)
+    if max_depth is not None and max_depth < 0:
+        raise ValueError("max_depth must be zero or greater")
+
+    link_component = _find_link_component(root)
+    if link_component is not None:
+        component, link_kind = link_component
+        description = "symbolic link" if link_kind == "symlink" else link_kind
+        raise NotADirectoryError(
+            f"scan root contains a {description}: {component}"
+        )
+
+    try:
+        root_metadata = os.lstat(root)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"scan root does not exist: {root}") from None
+    if not stat.S_ISDIR(root_metadata.st_mode):
         raise NotADirectoryError(f"scan root is not a directory: {root}")
+
+    try:
+        resolved_root = root.resolve(strict=True)
+    except (OSError, RuntimeError) as error:
+        raise OSError(f"could not resolve scan root: {error}") from error
 
     files: list[Path] = []
     warnings: list[str] = []
     _scan_directory(
         root,
         root,
+        resolved_root,
         files,
         warnings,
         exclude_patterns,
@@ -183,7 +319,7 @@ def build_tree(root: Path, files: Sequence[Path]) -> tuple[str, ...]:
             if index == len(parts) - 1:
                 node.is_file = True
 
-    lines = [root.name or str(root)]
+    lines = [_display_root_name(root)]
 
     def render(node: _TreeNode, depth: int) -> None:
         children = list(node.children.items())

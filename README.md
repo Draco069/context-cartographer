@@ -8,7 +8,7 @@ Context Cartographer is a zero-dependency Python CLI that statically maps a proj
 - Shows a file tree, extension counts, likely entry points, tests, configuration, documentation, and TODO/FIXME locations.
 - Supports custom glob exclusions and a maximum traversal depth.
 - Skips common generated and dependency directories by default.
-- Rejects a symbolic-link scan root and skips discovered symlinks with warnings.
+- Rejects scan roots whose path contains a symbolic link or Windows reparse point, and skips discovered link/reparse entries with warnings.
 - Uses only the Python standard library and never executes discovered project code.
 
 ## Installation
@@ -37,7 +37,7 @@ cartographer examples/demo-project --format json
 python -m context_cartographer examples/demo-project --output examples/demo-project/MAP.md
 ```
 
-The last command writes a Markdown report to `examples/demo-project/MAP.md`. That generated file will be included in a later scan of `examples/demo-project` unless it is excluded with `--exclude` or removed. Without `--output`, Context Cartographer writes the report to standard output. On Windows consoles that do not already use UTF-8, set `$env:PYTHONIOENCODING = 'utf-8'` before printing a Markdown report to the terminal.
+The last command writes a Markdown report to `examples/demo-project/MAP.md`. That generated file will be included in a later scan of `examples/demo-project` unless it is excluded with `--exclude` or removed. Without `--output`, Context Cartographer writes the report to standard output. Markdown keeps the documented Unicode tree in the report; if the console encoding cannot represent it, standard output uses an ASCII-safe backslash-escaped fallback and the command still exits successfully.
 
 ## Command options
 
@@ -60,15 +60,15 @@ cartographer [PATH] [--format {markdown,json}] [--output PATH]
 
 ### Discovery behavior
 
-Directory traversal is sorted and case-insensitive at each level, with the original name used as a deterministic tie-breaker. These directory names are ignored by default: `.git`, `.venv`, `venv`, `node_modules`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, `dist`, and `build`.
+Directory traversal is sorted and case-insensitive at each level, with the original name used as a deterministic tie-breaker. These directory names are ignored by default, matched case-insensitively: `.git`, `.venv`, `venv`, `node_modules`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, `dist`, and `build`.
 
-If the supplied `PATH` is itself a symbolic link, Context Cartographer rejects it and exits with code `1`. Symbolic-link files or directories discovered below an accepted root are not followed; each is skipped and a warning is written to standard error and included in the report. These checks do not inspect or reject symlinks in ancestor components of `PATH`.
+If any component of the supplied `PATH` is a symbolic link or Windows reparse point (including a junction), Context Cartographer rejects the scan root and exits with code `1`. Link/reparse files or directories discovered below an accepted root are not followed; each is skipped and a relative warning is written to standard error and included in the report. Resolved entry paths are checked to ensure they remain under the accepted root.
 
 ### Report behavior
 
-Markdown reports contain these sections in order: `Summary`, `Project tree`, `Files by extension`, `Likely entry points`, `Tests`, `Configuration`, `Documentation`, `TODO/FIXME`, and `Warnings`. JSON reports contain the same information in a key-sorted object, including summary counts, tree lines, categorized paths, per-file metadata, TODO/FIXME records, and warnings.
+Markdown reports contain these sections in order: `Summary`, `Project tree`, `Files by extension`, `Likely entry points`, `Tests`, `Configuration`, `Documentation`, `TODO/FIXME`, and `Warnings`. The report and tree title use only the resolved directory basename, not the absolute target path. JSON reports contain the same information in a key-sorted object, including summary counts, tree lines, categorized paths, per-file metadata, TODO/FIXME records, and warnings.
 
-File records contain relative paths, extensions, classification flags, and TODO/FIXME path, line, and marker records. Reports do not contain complete source-file contents. Scan and read warnings are printed to standard error after output, keeping the rendered report on standard output.
+File records contain relative paths, extensions, classification flags, and TODO/FIXME path, line, and marker records. Reports do not contain complete source-file contents. Standard output is flushed before scan and read warnings are printed to standard error, keeping the rendered report ordered when streams are combined.
 
 The command uses these exit codes:
 

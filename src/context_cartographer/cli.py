@@ -88,6 +88,15 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _write_stdout(text: str) -> None:
+    """Write text, falling back to ASCII escapes for narrow consoles."""
+    try:
+        sys.stdout.write(text)
+    except UnicodeEncodeError:
+        ascii_text = text.encode("ascii", errors="backslashreplace").decode("ascii")
+        sys.stdout.write(ascii_text)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the scanner, analyzer, renderer, and output pipeline."""
     parser = build_parser()
@@ -103,18 +112,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not root.is_dir():
             raise InputError(f"target path is not a directory: {root}")
 
-        scan = scan_project(
-            root,
-            exclude_patterns=args.exclude,
-            max_depth=args.max_depth,
-        )
+        try:
+            scan = scan_project(
+                root,
+                exclude_patterns=args.exclude,
+                max_depth=args.max_depth,
+            )
+        except (FileNotFoundError, NotADirectoryError) as error:
+            raise InputError(str(error)) from error
+
         analysis = analyze_files(
             root,
             scan.files,
             include_todos=not args.no_todos,
         )
         report = ProjectReport(
-            root=root.name or str(root),
+            root=scan.tree[0],
             files=analysis.files,
             tree=scan.tree,
             warnings=scan.warnings + analysis.warnings,
@@ -130,8 +143,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     f"could not write output file {output}: {error}"
                 ) from error
         else:
-            sys.stdout.write(rendered)
+            _write_stdout(rendered)
 
+        sys.stdout.flush()
         for warning in report.warnings:
             print(f"cartographer: warning: {warning}", file=sys.stderr)
         return 0

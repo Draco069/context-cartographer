@@ -1,3 +1,5 @@
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,6 +9,24 @@ from context_cartographer.scanner import scan_project
 
 
 class ScannerTests(unittest.TestCase):
+    def _create_windows_junction(self, link: Path, target: Path) -> None:
+        if os.name != "nt":
+            self.skipTest("Windows junctions are unavailable on this platform")
+
+        try:
+            result = subprocess.run(
+                ["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(target)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError as error:
+            self.skipTest(f"mklink /J is unavailable: {error}")
+
+        if result.returncode != 0:
+            details = (result.stderr or result.stdout).strip()
+            self.skipTest(f"mklink /J could not create a junction: {details}")
+
     def test_scanner_skips_default_directories_and_sorts_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -35,6 +55,26 @@ class ScannerTests(unittest.TestCase):
             result = scan_project(root, max_depth=0)
 
             self.assertEqual([path.name for path in result.files], ["top.txt"])
+
+    def test_default_exclusions_match_directory_names_case_insensitively(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "BUILD").mkdir()
+            (root / "BUILD" / "ignored.txt").write_text("x\n", encoding="utf-8")
+            (root / "Node_Modules").mkdir()
+            (root / "Node_Modules" / "ignored.js").write_text("x\n", encoding="utf-8")
+            (root / "kept.txt").write_text("x\n", encoding="utf-8")
+
+            result = scan_project(root)
+
+            self.assertEqual([path.name for path in result.files], ["kept.txt"])
+
+    def test_negative_max_depth_is_rejected_by_direct_api(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(ValueError) as context:
+                scan_project(Path(directory), max_depth=-1)
+
+            self.assertIn("max_depth", str(context.exception))
 
     def test_custom_exclusion_applies_to_relative_paths(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -67,6 +107,25 @@ class ScannerTests(unittest.TestCase):
 
             self.assertIn("symbolic link", str(context.exception).lower())
 
+    def test_symlink_ancestor_is_rejected_when_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            outside = base / "outside"
+            project = outside / "project"
+            project.mkdir(parents=True)
+            (project / "inside.txt").write_text("inside\n", encoding="utf-8")
+            ancestor = base / "ancestor"
+            try:
+                ancestor.symlink_to(outside, target_is_directory=True)
+            except (NotImplementedError, OSError) as error:
+                self.skipTest(f"symbolic links are unavailable: {error}")
+
+            with self.assertRaises(NotADirectoryError) as context:
+                scan_project(ancestor / "project")
+
+            self.assertIn("symbolic link", str(context.exception).lower())
+            self.assertIn("ancestor", str(context.exception))
+
     def test_nested_symlinks_are_skipped_with_warnings_when_supported(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -92,6 +151,41 @@ class ScannerTests(unittest.TestCase):
             self.assertIn("symlink", warning_text)
             self.assertIn("linked-file.txt", warning_text)
             self.assertIn("linked-directory", warning_text)
+
+    def test_junction_ancestor_is_rejected_when_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            outside = base / "outside"
+            project = outside / "project"
+            project.mkdir(parents=True)
+            (project / "inside.txt").write_text("inside\n", encoding="utf-8")
+            ancestor = base / "ancestor"
+            self._create_windows_junction(ancestor, outside)
+
+            with self.assertRaises(NotADirectoryError) as context:
+                scan_project(ancestor / "project")
+
+            self.assertIn("reparse", str(context.exception).lower())
+            self.assertIn("ancestor", str(context.exception))
+
+    def test_junction_entries_are_skipped_with_relative_warnings_when_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "root"
+            target = base / "outside"
+            root.mkdir()
+            target.mkdir()
+            (target / "inside.txt").write_text("inside\n", encoding="utf-8")
+            link = root / "linked"
+            self._create_windows_junction(link, target)
+
+            result = scan_project(root)
+            warning_text = "\n".join(result.warnings).lower()
+
+            self.assertEqual(result.files, ())
+            self.assertIn("reparse", warning_text)
+            self.assertIn("linked", warning_text)
+            self.assertNotIn(str(base).lower(), warning_text)
 
     def test_root_listing_failure_propagates(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

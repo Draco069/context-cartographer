@@ -29,6 +29,38 @@ class CliTests(unittest.TestCase):
             self.assertIn("# Project map:", stdout.getvalue())
             self.assertTrue(stdout.getvalue().endswith("\n"))
 
+    def test_markdown_stdout_uses_ascii_fallback_for_cp1252_console(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "main.py").write_text("print('ok')\n", encoding="utf-8")
+            raw = io.BytesIO()
+
+            with io.TextIOWrapper(raw, encoding="cp1252") as stdout:
+                with redirect_stdout(stdout):
+                    exit_code = main([str(root)])
+                output = raw.getvalue()
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(output.isascii())
+            self.assertIn(b"\\u2514", output)
+
+    def test_report_title_uses_resolved_basename_without_absolute_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "project"
+            nested = project / "nested"
+            nested.mkdir(parents=True)
+            (project / "main.py").write_text("print('ok')\n", encoding="utf-8")
+            requested_root = nested / ".."
+            stdout = io.StringIO()
+
+            with redirect_stdout(stdout):
+                exit_code = main([str(requested_root)])
+
+            output = stdout.getvalue()
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(output.startswith("# Project map: project\n"))
+            self.assertIn("\nproject\n", output)
+            self.assertNotIn(str(Path(directory)), output)
+
     def test_json_output_file_is_written(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
