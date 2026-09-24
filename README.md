@@ -37,7 +37,7 @@ cartographer examples/demo-project --format json
 python -m context_cartographer examples/demo-project --output examples/demo-project/MAP.md
 ```
 
-The last command writes a Markdown report to `examples/demo-project/MAP.md`. Without `--output`, Context Cartographer writes the report to standard output. On Windows consoles that do not already use UTF-8, set `$env:PYTHONIOENCODING = 'utf-8'` before printing a Markdown report to the terminal.
+The last command writes a Markdown report to `examples/demo-project/MAP.md`. That generated file will be included in a later scan of `examples/demo-project` unless it is excluded with `--exclude` or removed. Without `--output`, Context Cartographer writes the report to standard output. On Windows consoles that do not already use UTF-8, set `$env:PYTHONIOENCODING = 'utf-8'` before printing a Markdown report to the terminal.
 
 ## Command options
 
@@ -115,7 +115,7 @@ Generate indented, key-sorted JSON:
 cartographer examples/demo-project --format json
 ```
 
-A JSON TODO record has this shape:
+The shown JSON `todos` section has this shape:
 
 ```json
 {
@@ -139,7 +139,7 @@ cartographer examples/demo-project --output examples/demo-project/MAP.md
 
 Context Cartographer performs static filesystem inspection only. It does **not** execute discovered code, import scanned modules, or make network requests. Reports include file metadata, classifications, and TODO/FIXME locations (path, line, and marker), not complete source files. Warnings can contain file paths and operating-system error text.
 
-The tool has no upload functionality, and generated report files are not uploaded. Review reports before sharing them because paths and marker text can reveal project-specific information.
+The tool has no upload functionality, and generated report files are not uploaded. Review reports before sharing them because paths and TODO/FIXME marker tokens can reveal project-specific information.
 
 ## Development
 
