@@ -537,7 +537,10 @@ CONFIG_FILENAMES = frozenset(
     }
 )
 ENTRY_POINT_FILENAMES = frozenset(
-    {"main.py", "app.py", "index.js", "index.ts", "server.js", "server.ts", "__main__.py"}
+    {
+        "main.py", "app.py", "index.js", "index.ts", "server.js", "server.ts", "__main__.py",
+        "pyproject.toml", "package.json", "Cargo.toml", "go.mod",
+    }
 )
 TODO_PATTERN = re.compile(r"\b(TODO|FIXME)\b")
 TEXT_EXTENSIONS = SOURCE_EXTENSIONS | DOCUMENTATION_EXTENSIONS | frozenset({".toml", ".yaml", ".yml", ".ini", ".cfg", ".json"})
