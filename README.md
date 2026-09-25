@@ -64,6 +64,8 @@ Directory traversal is sorted and case-insensitive at each level, with the origi
 
 If any lexical component of the supplied `PATH` is a symbolic link or Windows reparse point (including a junction), including a link/reparse component before a user-supplied `..`, Context Cartographer rejects the scan root and exits with code `1`. Missing intermediate components do not stop later lexical link checks, while a genuinely missing root still fails. Link/reparse files or directories discovered below an accepted root are not followed; each is skipped and a relative warning is written to standard error and included in the report. Resolved entry paths are checked to ensure they remain under the accepted root.
 
+These link/reparse checks and resolved-containment checks are point-in-time safeguards, not a race-free guarantee against a concurrent process replacing a path during a scan. For untrusted, concurrently modified trees, make a stable copy and scan the copy.
+
 ### Report behavior
 
 Markdown reports contain these sections in order: `Summary`, `Project tree`, `Files by extension`, `Likely entry points`, `Tests`, `Configuration`, `Documentation`, `TODO/FIXME`, and `Warnings`. The report and tree title use only the resolved directory basename, not the absolute target path. JSON reports contain the same information in a key-sorted object, including summary counts, tree lines, categorized paths, per-file metadata, TODO/FIXME records, and warnings.

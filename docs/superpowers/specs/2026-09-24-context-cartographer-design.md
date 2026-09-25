@@ -108,6 +108,7 @@ An unreadable individual file will produce a warning on standard error; its file
 - It will not make network requests.
 - It will not include full file contents in reports.
 - It will inspect lexical scan-root components before applying user-supplied `..`, continue past missing intermediate components to find later links, reject any symbolic link or Windows reparse point, and will not follow discovered link/reparse entries by default; resolved paths are kept under the accepted root.
+- Link/reparse detection and resolved containment are point-in-time checks, not race-free guarantees against a concurrent process replacing a path during a scan. Untrusted, concurrently modified trees should be copied to a stable location before scanning.
 - Paths in reports will be relative to the target where possible.
 
 ## Testing Strategy

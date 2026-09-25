@@ -14,6 +14,7 @@
 - Use no third-party runtime dependencies.
 - Do not execute project files or make network requests.
 - Do not follow symlinked or Windows reparse-point directories or files; inspect lexical `..` components before resolving them.
+- Treat link/reparse detection and resolved containment as point-in-time checks, not race-free guarantees; scan a stable copy of untrusted, concurrently modified trees.
 - Ignore `.git`, `.venv`, `venv`, `node_modules`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, `dist`, and `build` by default.
 - Report file paths relative to the scanned root wherever possible.
 - Do not include complete file contents in reports.
