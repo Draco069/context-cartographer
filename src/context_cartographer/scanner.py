@@ -273,7 +273,7 @@ def scan_project(
     exclude_patterns: Sequence[str] = (),
     max_depth: int | None = None,
 ) -> ScanResult:
-    """Scan ``root`` without following links or leaving its resolved tree."""
+    """Scan a stable root with point-in-time link and containment checks."""
     root = Path(root)
     if max_depth is not None and max_depth < 0:
         raise ValueError("max_depth must be zero or greater")
