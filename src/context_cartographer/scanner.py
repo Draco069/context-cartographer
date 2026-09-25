@@ -151,8 +151,9 @@ def _find_link_component(path: Path) -> tuple[Path, str] | None:
         try:
             link_kind = _link_kind(component)
         except FileNotFoundError:
-            # Let the normal root validation below produce the public error.
-            return None
+            # A missing intermediate component must not hide a later link
+            # component that follows a lexical ``..``.
+            continue
         if link_kind is not None:
             return component, link_kind
     return None
@@ -289,6 +290,13 @@ def scan_project(
         root_metadata = os.lstat(root)
     except FileNotFoundError:
         raise FileNotFoundError(f"scan root does not exist: {root}") from None
+
+    root_link_kind = _link_kind(root)
+    if root_link_kind is not None:
+        description = (
+            "symbolic link" if root_link_kind == "symlink" else root_link_kind
+        )
+        raise NotADirectoryError(f"scan root is a {description}: {root}")
     if not stat.S_ISDIR(root_metadata.st_mode):
         raise NotADirectoryError(f"scan root is not a directory: {root}")
 

@@ -62,13 +62,13 @@ cartographer [PATH] [--format {markdown,json}] [--output PATH]
 
 Directory traversal is sorted and case-insensitive at each level, with the original name used as a deterministic tie-breaker. These directory names are ignored by default, matched case-insensitively: `.git`, `.venv`, `venv`, `node_modules`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, `dist`, and `build`.
 
-If any lexical component of the supplied `PATH` is a symbolic link or Windows reparse point (including a junction), including a link/reparse component before a user-supplied `..`, Context Cartographer rejects the scan root and exits with code `1`. Link/reparse files or directories discovered below an accepted root are not followed; each is skipped and a relative warning is written to standard error and included in the report. Resolved entry paths are checked to ensure they remain under the accepted root.
+If any lexical component of the supplied `PATH` is a symbolic link or Windows reparse point (including a junction), including a link/reparse component before a user-supplied `..`, Context Cartographer rejects the scan root and exits with code `1`. Missing intermediate components do not stop later lexical link checks, while a genuinely missing root still fails. Link/reparse files or directories discovered below an accepted root are not followed; each is skipped and a relative warning is written to standard error and included in the report. Resolved entry paths are checked to ensure they remain under the accepted root.
 
 ### Report behavior
 
 Markdown reports contain these sections in order: `Summary`, `Project tree`, `Files by extension`, `Likely entry points`, `Tests`, `Configuration`, `Documentation`, `TODO/FIXME`, and `Warnings`. The report and tree title use only the resolved directory basename, not the absolute target path. JSON reports contain the same information in a key-sorted object, including summary counts, tree lines, categorized paths, per-file metadata, TODO/FIXME records, and warnings.
 
-File records contain relative paths, extensions, classification flags, and TODO/FIXME path, line, and marker records. Reports do not contain complete source-file contents. When a report is written to standard output, it is flushed before scan and read warnings are printed to standard error, keeping the rendered report ordered when streams are combined. File output does not require a usable standard-output stream.
+File records contain relative paths, extensions, classification flags, and TODO/FIXME path, line, and marker records. Reports do not contain complete source-file contents. When a report is written to standard output, it is flushed before scan and read warnings are printed to standard error, keeping the rendered report ordered when streams are combined. File output does not require a usable standard-output stream; output path expansion and write failures are reported with the destination context.
 
 The command uses these exit codes:
 

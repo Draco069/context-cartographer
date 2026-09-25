@@ -81,6 +81,22 @@ class ScannerTests(unittest.TestCase):
 
             self.assertEqual([path.name for path in result.files], ["kept.txt"])
 
+    def test_root_link_kind_is_rechecked_after_lstat(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            with patch(
+                "context_cartographer.scanner._find_link_component",
+                return_value=None,
+            ), patch(
+                "context_cartographer.scanner._link_kind",
+                return_value="reparse point",
+            ):
+                with self.assertRaises(NotADirectoryError) as context:
+                    scan_project(root)
+
+            self.assertIn("reparse", str(context.exception).lower())
+
     def test_negative_max_depth_is_rejected_by_direct_api(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(ValueError) as context:
@@ -159,6 +175,29 @@ class ScannerTests(unittest.TestCase):
             self.assertIn("symbolic link", str(context.exception).lower())
             self.assertIn("ancestor", str(context.exception))
 
+    def test_symlink_after_missing_component_before_parent_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            outside = base / "outside"
+            project = base / "project"
+            outside.mkdir()
+            project.mkdir()
+            (project / "inside.txt").write_text("inside\n", encoding="utf-8")
+            junction = base / "junction"
+            try:
+                junction.symlink_to(outside, target_is_directory=True)
+            except (NotImplementedError, OSError) as error:
+                self.skipTest(f"symbolic links are unavailable: {error}")
+
+            requested_root = (
+                base / "missing" / ".." / "junction" / ".." / "project"
+            )
+            with self.assertRaises(NotADirectoryError) as context:
+                scan_project(requested_root)
+
+            self.assertIn("symbolic link", str(context.exception).lower())
+            self.assertIn("junction", str(context.exception))
+
     def test_nested_symlinks_are_skipped_with_warnings_when_supported(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -218,6 +257,26 @@ class ScannerTests(unittest.TestCase):
 
             self.assertIn("reparse", str(context.exception).lower())
             self.assertIn("ancestor", str(context.exception))
+
+    def test_junction_after_missing_component_before_parent_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            outside = base / "outside"
+            project = base / "project"
+            outside.mkdir()
+            project.mkdir()
+            (project / "inside.txt").write_text("inside\n", encoding="utf-8")
+            junction = base / "junction"
+            self._create_windows_junction(junction, outside)
+
+            requested_root = (
+                base / "missing" / ".." / "junction" / ".." / "project"
+            )
+            with self.assertRaises(NotADirectoryError) as context:
+                scan_project(requested_root)
+
+            self.assertIn("reparse", str(context.exception).lower())
+            self.assertIn("junction", str(context.exception))
 
     def test_junction_entries_are_skipped_with_relative_warnings_when_supported(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

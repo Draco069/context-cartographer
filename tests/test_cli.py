@@ -165,6 +165,44 @@ class CliTests(unittest.TestCase):
             self.assertIn("cartographer: error:", stderr.getvalue())
             self.assertNotIn("Traceback", stderr.getvalue())
 
+    def test_root_expansion_failure_returns_one_without_traceback(self) -> None:
+        stderr = io.StringIO()
+        with patch.object(
+            Path, "expanduser", autospec=True, side_effect=RuntimeError("home unavailable")
+        ):
+            with redirect_stderr(stderr):
+                exit_code = main(["project"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("could not expand target path", stderr.getvalue())
+        self.assertIn("home unavailable", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_output_expansion_failure_returns_two_with_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output_argument = "~/report.md"
+            original_expanduser = Path.expanduser
+
+            def fail_output_expansion(path: Path) -> Path:
+                if path.as_posix() == output_argument:
+                    raise RuntimeError("home unavailable")
+                return original_expanduser(path)
+
+            stderr = io.StringIO()
+            with patch.object(
+                Path, "expanduser", autospec=True, side_effect=fail_output_expansion
+            ):
+                with redirect_stderr(stderr):
+                    exit_code = main(
+                        [str(root), "--output", output_argument]
+                    )
+
+            self.assertEqual(exit_code, 2)
+            self.assertIn(output_argument, stderr.getvalue())
+            self.assertIn("home unavailable", stderr.getvalue())
+            self.assertNotIn("Traceback", stderr.getvalue())
+
     def test_unknown_format_returns_one(self) -> None:
         stderr = io.StringIO()
         with redirect_stderr(stderr):
@@ -281,7 +319,7 @@ class CliTests(unittest.TestCase):
             self.assertIn("disk full", stderr.getvalue())
             self.assertNotIn("Traceback", stderr.getvalue())
 
-    def test_junction_ancestor_is_rejected_before_directory_check(self) -> None:
+    def test_junction_after_missing_component_is_rejected_before_root_probes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             outside = base / "outside"
@@ -291,23 +329,39 @@ class CliTests(unittest.TestCase):
             (project / "file.txt").write_text("content\n", encoding="utf-8")
             link = base / "link"
             self._create_root_link(link, outside)
-            requested_root = link / ".." / "project"
+            requested_root = (
+                base / "missing" / ".." / "link" / ".." / "project"
+            )
 
-            original_is_dir = Path.is_dir
+            def forbid_probe(original):
+                def probe(path: Path) -> bool:
+                    if path == requested_root:
+                        raise AssertionError(
+                            "untrusted root should not be probed"
+                        )
+                    return original(path)
 
-            def fail_for_untrusted_root(path: Path) -> bool:
-                if path == requested_root:
-                    raise AssertionError("untrusted root should not be checked as a directory")
-                return original_is_dir(path)
+                return probe
 
             stderr = io.StringIO()
-            with patch.object(Path, "is_dir", fail_for_untrusted_root):
-                with redirect_stderr(stderr):
-                    exit_code = main([str(requested_root)])
+            with patch.object(
+                Path, "exists", forbid_probe(Path.exists)
+            ):
+                with patch.object(
+                    Path, "is_dir", forbid_probe(Path.is_dir)
+                ):
+                    with patch.object(
+                        Path, "is_symlink", forbid_probe(Path.is_symlink)
+                    ):
+                        with redirect_stderr(stderr):
+                            exit_code = main([str(requested_root)])
 
             self.assertEqual(exit_code, 1)
             self.assertIn("cartographer: error:", stderr.getvalue())
-            self.assertIn("reparse" if os.name == "nt" else "symbolic link", stderr.getvalue().lower())
+            self.assertIn(
+                "reparse" if os.name == "nt" else "symbolic link",
+                stderr.getvalue().lower(),
+            )
             self.assertNotIn("Traceback", stderr.getvalue())
 
     def test_output_write_value_error_returns_two_and_names_destination(self) -> None:

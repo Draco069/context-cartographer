@@ -409,7 +409,7 @@ def _matches(relative_path: str, name: str, patterns: Sequence[str]) -> bool:
     )
 ```
 
-The recursive helper must sort entries by `entry.name.casefold(), entry.name`, collect regular files, skip symlink/reparse entries with a relative warning, prune directories whose name is in `DEFAULT_EXCLUDED_DIRECTORIES` or matches a user pattern, and recurse only when `max_depth is None or current_depth < max_depth`. Root validation must inspect every lexical path component in order before applying a following `..`, including drive-specific bases for Windows drive-relative paths, and reject any symlink or reparse component. Wrap `Path.iterdir()` in `try/except OSError`; append a warning containing the relative path and continue. Re-raise a missing root as `FileNotFoundError` and reject a non-directory root with `NotADirectoryError`.
+The recursive helper must sort entries by `entry.name.casefold(), entry.name`, collect regular files, skip symlink/reparse entries with a relative warning, prune directories whose name is in `DEFAULT_EXCLUDED_DIRECTORIES` or matches a user pattern, and recurse only when `max_depth is None or current_depth < max_depth`. Root validation must inspect every lexical path component in order before applying a following `..`, including drive-specific bases for Windows drive-relative paths; missing intermediate components must not stop later link checks, and any symlink or reparse component must be rejected. After the final root `lstat`, recheck the root link kind before accepting it as a directory. Wrap `Path.iterdir()` in `try/except OSError`; append a warning containing the relative path and continue. Re-raise a genuinely missing root as `FileNotFoundError` and reject a non-directory root with `NotADirectoryError`.
 
 `build_tree` must create one root line containing the directory name, sort paths lexicographically by POSIX-style relative paths, and use two spaces per depth level. It must use `├── ` and `└── ` for the final sibling at each level. A directory-only branch must not be emitted unless it contains a discovered file. Keep the implementation deterministic so the same filesystem produces the same report.
 
@@ -794,7 +794,10 @@ def _non_negative_int(value: str) -> int:
 parser = build_parser()
 try:
     args = parser.parse_args(argv)
-    root = Path(args.path).expanduser()
+    try:
+        root = Path(args.path).expanduser()
+    except (OSError, RuntimeError, ValueError) as error:
+        raise InputError(f"could not expand target path {args.path}: {error}") from error
     try:
         scan = scan_project(
             root,
@@ -812,11 +815,12 @@ try:
     )
     rendered = render_report(report, args.format)
     if args.output:
-        output = Path(args.output).expanduser()
+        output_argument = args.output
         try:
+            output = Path(output_argument).expanduser()
             output.write_text(rendered, encoding="utf-8")
-        except (OSError, ValueError) as error:
-            raise OutputError(f"could not write output file {output}: {error}") from error
+        except (OSError, RuntimeError, ValueError) as error:
+            raise OutputError(f"could not write output file {output_argument}: {error}") from error
     else:
         _write_stdout(rendered)
         sys.stdout.flush()
@@ -831,7 +835,7 @@ except (OSError, ValueError) as error:
     return 2
 ```
 
-Root existence, directory, symlink, and reparse-point validation belongs to `scan_project()` before any CLI filesystem probe. The output block catches `OSError` and `ValueError` from `write_text` and raises `OutputError` with the destination path. Do not catch `KeyboardInterrupt`. Keep report output exactly one rendered document with no progress messages on standard output.
+Root existence, directory, symlink, and reparse-point validation belongs to `scan_project()` before any CLI filesystem probe. Target and output path expansion failures are mapped to `InputError` or `OutputError` as appropriate; the output block catches `OSError`, `RuntimeError`, and `ValueError` from expansion or `write_text` and preserves the destination path. Do not catch `KeyboardInterrupt`. Keep report output exactly one rendered document with no progress messages on standard output.
 
 - [ ] **Step 5: Run the CLI tests and verify they pass**
 

@@ -111,7 +111,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     try:
         args = parser.parse_args(argv)
-        root = Path(args.path).expanduser()
+        try:
+            root = Path(args.path).expanduser()
+        except (OSError, RuntimeError, ValueError) as error:
+            raise InputError(
+                f"could not expand target path {args.path}: {error}"
+            ) from error
 
         try:
             scan = scan_project(
@@ -136,12 +141,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         rendered = render_report(report, args.format)
 
         if args.output:
-            output = Path(args.output).expanduser()
+            output_argument = args.output
             try:
+                output = Path(output_argument).expanduser()
                 output.write_text(rendered, encoding="utf-8")
-            except (OSError, ValueError) as error:
+            except (OSError, RuntimeError, ValueError) as error:
                 raise OutputError(
-                    f"could not write output file {output}: {error}"
+                    f"could not write output file {output_argument}: {error}"
                 ) from error
         else:
             _write_stdout(rendered)
