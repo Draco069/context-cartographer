@@ -1,5 +1,7 @@
 import io
 import json
+import os
+import subprocess
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -18,6 +20,27 @@ from context_cartographer.scanner import ScanResult
 
 
 class CliTests(unittest.TestCase):
+    def _create_root_link(self, link: Path, target: Path) -> None:
+        if os.name == "nt":
+            try:
+                result = subprocess.run(
+                    ["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(target)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+            except OSError as error:
+                self.skipTest(f"mklink /J is unavailable: {error}")
+            if result.returncode != 0:
+                details = (result.stderr or result.stdout).strip()
+                self.skipTest(f"mklink /J could not create a junction: {details}")
+            return
+
+        try:
+            link.symlink_to(target, target_is_directory=True)
+        except (NotImplementedError, OSError) as error:
+            self.skipTest(f"symbolic links are unavailable: {error}")
+
     def test_markdown_report_is_written_to_stdout(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -256,6 +279,51 @@ class CliTests(unittest.TestCase):
             self.assertEqual(exit_code, 2)
             self.assertIn(str(output), stderr.getvalue())
             self.assertIn("disk full", stderr.getvalue())
+            self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_junction_ancestor_is_rejected_before_directory_check(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            outside = base / "outside"
+            project = base / "project"
+            outside.mkdir()
+            project.mkdir()
+            (project / "file.txt").write_text("content\n", encoding="utf-8")
+            link = base / "link"
+            self._create_root_link(link, outside)
+            requested_root = link / ".." / "project"
+
+            original_is_dir = Path.is_dir
+
+            def fail_for_untrusted_root(path: Path) -> bool:
+                if path == requested_root:
+                    raise AssertionError("untrusted root should not be checked as a directory")
+                return original_is_dir(path)
+
+            stderr = io.StringIO()
+            with patch.object(Path, "is_dir", fail_for_untrusted_root):
+                with redirect_stderr(stderr):
+                    exit_code = main([str(requested_root)])
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("cartographer: error:", stderr.getvalue())
+            self.assertIn("reparse" if os.name == "nt" else "symbolic link", stderr.getvalue().lower())
+            self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_output_write_value_error_returns_two_and_names_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "main.py").write_text("print('ok')\n", encoding="utf-8")
+            output = root / "map.md"
+            stderr = io.StringIO()
+
+            with patch.object(Path, "write_text", side_effect=ValueError("invalid path")):
+                with redirect_stderr(stderr):
+                    exit_code = main([str(root), "--output", str(output)])
+
+            self.assertEqual(exit_code, 2)
+            self.assertIn(str(output), stderr.getvalue())
+            self.assertIn("invalid path", stderr.getvalue())
             self.assertNotIn("Traceback", stderr.getvalue())
 
     def test_symlink_target_is_rejected_before_directory_check(self) -> None:

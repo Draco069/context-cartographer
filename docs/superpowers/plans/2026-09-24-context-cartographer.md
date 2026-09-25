@@ -13,7 +13,7 @@
 - Support Python 3.10 and newer.
 - Use no third-party runtime dependencies.
 - Do not execute project files or make network requests.
-- Do not follow symlinked directories or files.
+- Do not follow symlinked or Windows reparse-point directories or files; inspect lexical `..` components before resolving them.
 - Ignore `.git`, `.venv`, `venv`, `node_modules`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, `dist`, and `build` by default.
 - Report file paths relative to the scanned root wherever possible.
 - Do not include complete file contents in reports.
@@ -409,7 +409,7 @@ def _matches(relative_path: str, name: str, patterns: Sequence[str]) -> bool:
     )
 ```
 
-The recursive helper must sort entries by `entry.name.casefold(), entry.name`, collect regular files, skip symlinks with a warning, prune directories whose name is in `DEFAULT_EXCLUDED_DIRECTORIES` or matches a user pattern, and recurse only when `max_depth is None or current_depth < max_depth`. Wrap `Path.iterdir()` in `try/except OSError`; append a warning containing the relative path and continue. Re-raise a missing root as `FileNotFoundError` and reject a non-directory root with `NotADirectoryError`.
+The recursive helper must sort entries by `entry.name.casefold(), entry.name`, collect regular files, skip symlink/reparse entries with a relative warning, prune directories whose name is in `DEFAULT_EXCLUDED_DIRECTORIES` or matches a user pattern, and recurse only when `max_depth is None or current_depth < max_depth`. Root validation must inspect every lexical path component in order before applying a following `..`, including drive-specific bases for Windows drive-relative paths, and reject any symlink or reparse component. Wrap `Path.iterdir()` in `try/except OSError`; append a warning containing the relative path and continue. Re-raise a missing root as `FileNotFoundError` and reject a non-directory root with `NotADirectoryError`.
 
 `build_tree` must create one root line containing the directory name, sort paths lexicographically by POSIX-style relative paths, and use two spaces per depth level. It must use `├── ` and `└── ` for the final sibling at each level. A directory-only branch must not be emitted unless it contains a discovered file. Keep the implementation deterministic so the same filesystem produces the same report.
 
@@ -795,18 +795,17 @@ parser = build_parser()
 try:
     args = parser.parse_args(argv)
     root = Path(args.path).expanduser()
-    if not root.exists():
-        raise InputError(f"target path does not exist: {root}")
-    if not root.is_dir():
-        raise InputError(f"target path is not a directory: {root}")
-    scan = scan_project(
-        root,
-        exclude_patterns=args.exclude,
-        max_depth=args.max_depth,
-    )
+    try:
+        scan = scan_project(
+            root,
+            exclude_patterns=args.exclude,
+            max_depth=args.max_depth,
+        )
+    except (FileNotFoundError, NotADirectoryError) as error:
+        raise InputError(str(error)) from error
     analysis = analyze_files(root, scan.files, include_todos=not args.no_todos)
     report = ProjectReport(
-        root=root.name or str(root),
+        root=scan.tree[0],
         files=analysis.files,
         tree=scan.tree,
         warnings=scan.warnings + analysis.warnings,
@@ -816,22 +815,23 @@ try:
         output = Path(args.output).expanduser()
         try:
             output.write_text(rendered, encoding="utf-8")
-        except OSError as error:
+        except (OSError, ValueError) as error:
             raise OutputError(f"could not write output file {output}: {error}") from error
     else:
-        sys.stdout.write(rendered)
+        _write_stdout(rendered)
+        sys.stdout.flush()
     for warning in report.warnings:
-        print(f"cartographer: warning: {warning}", file=sys.stderr)
+        _write_stderr(f"cartographer: warning: {warning}\n")
     return 0
 except CartographerError as error:
-    print(f"cartographer: error: {error}", file=sys.stderr)
+    _write_stderr(f"cartographer: error: {error}\n")
     return error.exit_code
-except OSError as error:
-    print(f"cartographer: error: {error}", file=sys.stderr)
+except (OSError, ValueError) as error:
+    _write_stderr(f"cartographer: error: {error}\n")
     return 2
 ```
 
-The output block above catches `OSError` from `write_text` and raises `OutputError` with the destination path. Do not catch `KeyboardInterrupt`. Keep report output exactly one rendered document with no progress messages on standard output.
+Root existence, directory, symlink, and reparse-point validation belongs to `scan_project()` before any CLI filesystem probe. The output block catches `OSError` and `ValueError` from `write_text` and raises `OutputError` with the destination path. Do not catch `KeyboardInterrupt`. Keep report output exactly one rendered document with no progress messages on standard output.
 
 - [ ] **Step 5: Run the CLI tests and verify they pass**
 
@@ -874,7 +874,7 @@ git commit -m "feat: add cartographer command line interface"
 **Interfaces:**
 - The example project must produce a report containing `src/demo_app.py`, `tests/test_demo_app.py`, `pyproject.toml`, and at least one TODO marker.
 - The README must document installation, all CLI options, report behavior, privacy guarantees, development commands, and contribution workflow.
-- CI must run the standard-library test suite on Python 3.10, 3.11, 3.12, and 3.13.
+- CI must run the standard-library test suite on Ubuntu and Windows for Python 3.10, 3.11, 3.12, and 3.13.
 
 - [ ] **Step 1: Add the example project files**
 
@@ -959,9 +959,10 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: [ubuntu-latest, windows-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4

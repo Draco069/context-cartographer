@@ -107,7 +107,7 @@ An unreadable individual file will produce a warning on standard error; its file
 - The tool will not execute discovered files.
 - It will not make network requests.
 - It will not include full file contents in reports.
-- It will reject scan-root paths containing symbolic links or Windows reparse points, and will not follow discovered link/reparse entries by default; resolved paths are kept under the accepted root.
+- It will inspect lexical scan-root components before applying user-supplied `..`, reject any symbolic link or Windows reparse point, and will not follow discovered link/reparse entries by default; resolved paths are kept under the accepted root.
 - Paths in reports will be relative to the target where possible.
 
 ## Testing Strategy

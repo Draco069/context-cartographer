@@ -114,12 +114,29 @@ def _link_kind(path: Path) -> str | None:
 
 def _absolute_components(path: Path) -> Iterator[Path]:
     """Yield lexical path components without resolving filesystem links."""
-    absolute = Path(os.path.abspath(path))
-    current = Path(absolute.anchor)
+    if path.is_absolute():
+        base = Path(path.anchor)
+        user_components = path.parts[1:]
+    elif path.drive:
+        # ``os.path.abspath`` on the full path would normalize ``..`` before
+        # the link checks.  Resolve only the drive-specific lexical base.
+        base = Path(os.path.abspath(f"{path.drive}."))
+        user_components = path.parts[1:]
+    elif path.root:
+        base = Path(os.path.abspath(path.anchor))
+        user_components = path.parts[1:]
+    else:
+        base = Path.cwd()
+        user_components = path.parts
+
+    current = Path(base.anchor)
     yield current
 
-    for component in absolute.parts[1:]:
-        if component == ".":
+    # Walk the base's ancestors and the user's components in their original
+    # order.  In particular, inspect a component before applying a following
+    # ``..`` so a link/reparse point cannot be hidden by normalization.
+    for component in (*base.parts[1:], *user_components):
+        if component in ("", "."):
             continue
         if component == "..":
             current = current.parent

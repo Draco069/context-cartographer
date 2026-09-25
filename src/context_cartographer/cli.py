@@ -113,14 +113,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         args = parser.parse_args(argv)
         root = Path(args.path).expanduser()
 
-        # Check this before is_dir() so a symlink cannot redirect the scan.
-        if root.is_symlink():
-            raise InputError(f"target path is a symlink: {root}")
-        if not root.exists():
-            raise InputError(f"target path does not exist: {root}")
-        if not root.is_dir():
-            raise InputError(f"target path is not a directory: {root}")
-
         try:
             scan = scan_project(
                 root,
@@ -147,7 +139,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             output = Path(args.output).expanduser()
             try:
                 output.write_text(rendered, encoding="utf-8")
-            except OSError as error:
+            except (OSError, ValueError) as error:
                 raise OutputError(
                     f"could not write output file {output}: {error}"
                 ) from error

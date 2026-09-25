@@ -29,11 +29,14 @@ class ScannerTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == "nt", "Windows drive-relative path behavior")
     def test_absolute_components_uses_drive_relative_base(self) -> None:
-        path = Path("Y:folder")
-        expected = Path(os.path.abspath(path))
+        path = Path("Y:folder") / ".." / "project"
+        drive_base = Path(os.path.abspath("Y:."))
+        folder = drive_base / "folder"
+        expected = folder.parent / "project"
         components = tuple(_absolute_components(path))
 
         self.assertEqual(components[0].drive, "Y:")
+        self.assertIn(folder, components)
         self.assertEqual(components[-1], expected)
 
     def test_scanner_skips_default_directories_and_sorts_files(self) -> None:
@@ -135,6 +138,27 @@ class ScannerTests(unittest.TestCase):
             self.assertIn("symbolic link", str(context.exception).lower())
             self.assertIn("ancestor", str(context.exception))
 
+    def test_symlink_before_parent_component_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            outside = base / "outside"
+            project = base / "project"
+            outside.mkdir()
+            project.mkdir()
+            (project / "inside.txt").write_text("inside\n", encoding="utf-8")
+            ancestor = base / "ancestor"
+            try:
+                ancestor.symlink_to(outside, target_is_directory=True)
+            except (NotImplementedError, OSError) as error:
+                self.skipTest(f"symbolic links are unavailable: {error}")
+
+            requested_root = ancestor / ".." / "project"
+            with self.assertRaises(NotADirectoryError) as context:
+                scan_project(requested_root)
+
+            self.assertIn("symbolic link", str(context.exception).lower())
+            self.assertIn("ancestor", str(context.exception))
+
     def test_nested_symlinks_are_skipped_with_warnings_when_supported(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -173,6 +197,24 @@ class ScannerTests(unittest.TestCase):
 
             with self.assertRaises(NotADirectoryError) as context:
                 scan_project(ancestor / "project")
+
+            self.assertIn("reparse", str(context.exception).lower())
+            self.assertIn("ancestor", str(context.exception))
+
+    def test_junction_before_parent_component_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            outside = base / "outside"
+            project = base / "project"
+            outside.mkdir()
+            project.mkdir()
+            (project / "inside.txt").write_text("inside\n", encoding="utf-8")
+            ancestor = base / "ancestor"
+            self._create_windows_junction(ancestor, outside)
+
+            requested_root = ancestor / ".." / "project"
+            with self.assertRaises(NotADirectoryError) as context:
+                scan_project(requested_root)
 
             self.assertIn("reparse", str(context.exception).lower())
             self.assertIn("ancestor", str(context.exception))

@@ -62,7 +62,7 @@ cartographer [PATH] [--format {markdown,json}] [--output PATH]
 
 Directory traversal is sorted and case-insensitive at each level, with the original name used as a deterministic tie-breaker. These directory names are ignored by default, matched case-insensitively: `.git`, `.venv`, `venv`, `node_modules`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, `dist`, and `build`.
 
-If any component of the supplied `PATH` is a symbolic link or Windows reparse point (including a junction), Context Cartographer rejects the scan root and exits with code `1`. Link/reparse files or directories discovered below an accepted root are not followed; each is skipped and a relative warning is written to standard error and included in the report. Resolved entry paths are checked to ensure they remain under the accepted root.
+If any lexical component of the supplied `PATH` is a symbolic link or Windows reparse point (including a junction), including a link/reparse component before a user-supplied `..`, Context Cartographer rejects the scan root and exits with code `1`. Link/reparse files or directories discovered below an accepted root are not followed; each is skipped and a relative warning is written to standard error and included in the report. Resolved entry paths are checked to ensure they remain under the accepted root.
 
 ### Report behavior
 
