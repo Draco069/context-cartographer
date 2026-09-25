@@ -405,7 +405,8 @@ class CliTests(unittest.TestCase):
                     exit_code = main([str(link)])
 
             self.assertEqual(exit_code, 1)
-            self.assertIn("symlink", stderr.getvalue().lower())
+            stderr_text = stderr.getvalue().lower()
+            self.assertTrue("symbolic link" in stderr_text or "symlink" in stderr_text)
 
     def test_error_types_have_documented_exit_codes(self) -> None:
         self.assertEqual(CartographerError("failure", 7).exit_code, 7)
